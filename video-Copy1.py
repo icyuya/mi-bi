@@ -11,7 +11,7 @@ video_path = "/home/nakahira/nakasone/video/NAICe5_WIN_20250519_09_39_43_Pro.mp4
 cap = cv2.VideoCapture(video_path)
 
 # 出力ビデオファイルの設定
-output_video_filename = "/home/nakahira/nakasone/video/output/output_video.avi"
+# output_video_filename = "annotated_output_final_unique_fish_count.mp4" # 保存するファイル名
 
 # VideoWriterの準備
 if not cap.isOpened():
@@ -22,32 +22,38 @@ frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 fps = cap.get(cv2.CAP_PROP_FPS)
 
-# FPSが取得できない場合のデフォルト値 (例: 25.0 や 30.0)
 if fps == 0:
     print("Warning: FPS not found in video metadata. Using default FPS = 25.0")
     fps = 25.0
 
-
-fourcc = cv2.VideoWriter_fourcc(*'XVID')
-video_writer = cv2.VideoWriter(output_video_filename, fourcc, fps, (frame_width, frame_height))
+# fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+# video_writer = cv2.VideoWriter(output_video_filename, fourcc, fps, (frame_width, frame_height))
 
 # print(f"Input video: {video_path}")
 # print(f"Output video will be saved as: {output_video_filename}")
 # print(f"Video properties: {frame_width}x{frame_height} @ {fps:.2f} FPS")
+
+unique_fish_ids = set() # これまでに検出されたユニークな魚のIDを格納するセット
 
 # Loop through the video frames
 while cap.isOpened():
     success, frame = cap.read()
 
     if success:
-        results = model(frame, conf=0.8)
-        annotated_frame = results[0].plot()
+        # YOLOv8のトラッキング機能を使用
+        results = model.track(frame, persist=True, conf=0.8, tracker="bytetrack.yaml")
+        annotated_frame = results[0].plot() # トラッキングIDも描画される場合がある
 
-        fish_count = 0
         areas_list = []
 
         if results[0].boxes is not None:
-            fish_count = len(results[0].boxes)
+            # トラックIDを収集してユニークIDセットに追加
+            if results[0].boxes.id is not None:
+                detected_ids_in_frame = results[0].boxes.id.int().tolist()
+                for fish_id in detected_ids_in_frame:
+                    unique_fish_ids.add(fish_id)
+
+            # マスクと面積の処理
             if results[0].masks is not None and results[0].masks.xy is not None:
                 for i, mask_polygon_points in enumerate(results[0].masks.xy):
                     contour = mask_polygon_points.astype(np.int32)
@@ -55,14 +61,18 @@ while cap.isOpened():
                     if area > 0:
                         areas_list.append(area)
 
-        # 1. 総カウント数を表示
-        count_text = f"Fish count: {fish_count}"
-        cv2.putText(annotated_frame, count_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        # 1. ★★★ ユニークな魚の総数をメインのカウントとして表示 ★★★
+        unique_fish_count = len(unique_fish_ids)
 
-        # 2. 面積リストを左上に表示 (行間を調整)
+        main_count_text = f"total fish: {unique_fish_count}"
+        cv2.putText(annotated_frame, main_count_text, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2) # 色を緑に
+
+
+        # 2. 面積リストを左上に表示 (開始位置を調整)
         start_x_areas = 10
-        start_y_areas = 60
-        line_height = 30  
+        start_y_areas = 60  # 表示開始Y座標を調整
+        line_height = 30   # 行の高さは維持 
         
         available_height = frame.shape[0] - start_y_areas - 10 
         max_items_on_screen = max(0, available_height // line_height)
@@ -74,15 +84,15 @@ while cap.isOpened():
             if idx == max_items_on_screen - 1 and len(areas_list) > max_items_on_screen:
                 display_text = "..."
             else:
-                display_text = f"F{idx+1}: {areas_list[idx]:.0f}px²"
+                if idx < len(areas_list):
+                     display_text = f"F{idx+1}: {areas_list[idx]:.0f}px"
+                else:
+                    display_text = f"F{idx+1}: ---" # 万が一areas_listが短い場合
 
             cv2.putText(annotated_frame, display_text, (start_x_areas, current_y_position),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1,(255, 255, 0), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
-        # 処理済みフレームをビデオファイルに書き込む
-        video_writer.write(annotated_frame)
-
-        # 画面に表示
+        # video_writer.write(annotated_frame)
         cv2.imshow("YOLOv8 Inference", annotated_frame)
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -90,9 +100,8 @@ while cap.isOpened():
     else:
         break
 
-# リソースを解放
 cap.release()
-video_writer.release() # VideoWriterを解放
+# video_writer.release()
 cv2.destroyAllWindows()
 
-print(f"Processed video saved successfully to: {output_video_filename}")
+# print(f"Processed video saved successfully to: {output_video_filename}")
