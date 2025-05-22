@@ -22,9 +22,26 @@ while cap.isOpened():
     if success:
         # Run YOLOv8 inference on the frame
         results = model(frame, conf=0.8)
-        #print(results)
-        # Visualize the results on the frame
+
         annotated_frame = results[0].plot()
+
+        # 魚のカウント数を取得
+        fish_count = len(results[0].boxes)
+
+        #カウント数を表示するテキスト
+        count_text = f"Fish count: {fish_count}"
+
+        # テキストをフレームの左上に描画
+        cv2.putText(annotated_frame,
+                    count_text,
+                    (10, 30),  # 表示位置 (左上のx, y座標)
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,         # フォントスケール
+                    (0, 0, 0), # 色 (B, G, R) 
+                    2)         # 文字の太さ
+        # print(results)
+        # Visualize the results on the frame
+        
 
         # Display the annotated frame
         cv2.imshow("YOLOv8 Inference", annotated_frame)
