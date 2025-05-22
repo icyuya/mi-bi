@@ -10,10 +10,9 @@ model = YOLO(model_file)
 video_path = "/home/nakahira/nakasone/video/NAICe5_WIN_20250519_09_39_43_Pro.mp4"
 cap = cv2.VideoCapture(video_path)
 
-# 出力ビデオファイルの設定
-# output_video_filename = "annotated_output_final_unique_fish_count.mp4" # 保存するファイル名
+# --- 動画保存関連のコードをコメントアウト ---
+output_video_filename = "annotated_output_size_categorized_fish.avi"
 
-# VideoWriterの準備
 if not cap.isOpened():
     print(f"Error: Could not open video {video_path}")
     exit()
@@ -26,14 +25,19 @@ if fps == 0:
     print("Warning: FPS not found in video metadata. Using default FPS = 25.0")
     fps = 25.0
 
-# fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-# video_writer = cv2.VideoWriter(output_video_filename, fourcc, fps, (frame_width, frame_height))
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+video_writer = cv2.VideoWriter(output_video_filename, fourcc, fps, (frame_width, frame_height))
 
 # print(f"Input video: {video_path}")
-# print(f"Output video will be saved as: {output_video_filename}")
-# print(f"Video properties: {frame_width}x{frame_height} @ {fps:.2f} FPS")
+# print(f"Output video will be saved as: {output_video_filename}") # コメントアウト
+# print(f"Video properties: {frame_width}x{frame_height} @ {fps:.2f} FPS") # コメントアウト
+# --- ここまで動画保存関連のコメントアウト ---
 
-unique_fish_ids = set() # これまでに検出されたユニークな魚のIDを格納するセット
+# ユニークIDを格納するセット
+unique_fish_ids_overall = set() # ★★★ 全体のユニークな魚のID ★★★
+unique_fish_ids_cat1 = set()    # Area <= 20000
+unique_fish_ids_cat2 = set()    # 20000 < Area <= 40000
+unique_fish_ids_cat3 = set()    # Area > 40000
 
 # Loop through the video frames
 while cap.isOpened():
@@ -42,57 +46,102 @@ while cap.isOpened():
     if success:
         # YOLOv8のトラッキング機能を使用
         results = model.track(frame, persist=True, conf=0.8, tracker="bytetrack.yaml")
-        annotated_frame = results[0].plot() # トラッキングIDも描画される場合がある
+        annotated_frame = results[0].plot()
 
-        areas_list = []
+        areas_list_current_frame = []
 
-        if results[0].boxes is not None:
-            # トラックIDを収集してユニークIDセットに追加
-            if results[0].boxes.id is not None:
-                detected_ids_in_frame = results[0].boxes.id.int().tolist()
-                for fish_id in detected_ids_in_frame:
-                    unique_fish_ids.add(fish_id)
+        # ボックスとIDが存在する場合
+        if results[0].boxes is not None and results[0].boxes.id is not None:
+            all_ids_tensor = results[0].boxes.id
+            
+            # ★★★ 全体のユニークIDを収集 ★★★
+            all_tracked_ids_in_frame = all_ids_tensor.int().tolist()
+            for an_id in all_tracked_ids_in_frame:
+                unique_fish_ids_overall.add(an_id)
 
-            # マスクと面積の処理
+            # マスクが存在する場合に面積計算とカテゴリ分類
             if results[0].masks is not None and results[0].masks.xy is not None:
-                for i, mask_polygon_points in enumerate(results[0].masks.xy):
+                all_masks_xy = results[0].masks.xy
+                
+                num_detections_with_ids = len(all_ids_tensor)
+                num_masks = len(all_masks_xy)
+
+                for i in range(min(num_detections_with_ids, num_masks)):
+                    fish_id = all_ids_tensor[i].item()
+                    mask_polygon_points = all_masks_xy[i]
+                    
                     contour = mask_polygon_points.astype(np.int32)
                     area = cv2.contourArea(contour)
+
                     if area > 0:
-                        areas_list.append(area)
+                        areas_list_current_frame.append(area)
 
-        # 1. ★★★ ユニークな魚の総数をメインのカウントとして表示 ★★★
-        unique_fish_count = len(unique_fish_ids)
+                        # 面積に基づいて魚をカテゴリ分類し、対応するセットにIDを追加
+                        if area <= 20000:
+                            unique_fish_ids_cat1.add(fish_id)
+                        elif area <= 40000:
+                            unique_fish_ids_cat2.add(fish_id)
+                        else:
+                            unique_fish_ids_cat3.add(fish_id)
+        
+        # 表示テキストの準備と描画
+        y_offset = 30
+        line_spacing = 35 # 各テキスト行間の基本スペース
 
-        main_count_text = f"total fish: {unique_fish_count}"
-        cv2.putText(annotated_frame, main_count_text, (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2) # 色を緑に
+        # 1. 全体のユニークな魚の総数を表示
+        overall_unique_count = len(unique_fish_ids_overall)
+        text_overall_unique = f"Total Fish: {overall_unique_count}"
+        cv2.putText(annotated_frame, text_overall_unique, (10, y_offset), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2) # マゼンタ色
+        y_offset += line_spacing
 
+        # 2. サイズカテゴリ別のユニークな魚の数を表示
+        count_cat1 = len(unique_fish_ids_cat1)
+        count_cat2 = len(unique_fish_ids_cat2)
+        count_cat3 = len(unique_fish_ids_cat3)
 
-        # 2. 面積リストを左上に表示 (開始位置を調整)
+        text_cat1 = f"Small: {count_cat1}" 
+        cv2.putText(annotated_frame, text_cat1, (10, y_offset), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        y_offset += line_spacing
+
+        text_cat2 = f"Medium: {count_cat2}"
+        cv2.putText(annotated_frame, text_cat2, (10, y_offset), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        y_offset += line_spacing
+
+        text_cat3 = f"Large: {count_cat3}"
+        cv2.putText(annotated_frame, text_cat3, (10, y_offset), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        y_offset += line_spacing # 次のエリアリスト表示のためのオフセット
+
+        # 3. （オプション）現在のフレームで検出された魚の面積リストを表示
         start_x_areas = 10
-        start_y_areas = 60  # 表示開始Y座標を調整
-        line_height = 30   # 行の高さは維持 
+        start_y_areas = y_offset # カテゴリ別カウントの下に表示開始
+        list_line_height = 35 # こちらは面積リスト用の行の高さ (フォントが小さいため)
         
         available_height = frame.shape[0] - start_y_areas - 10 
-        max_items_on_screen = max(0, available_height // line_height)
+        max_items_on_screen = max(0, available_height // list_line_height)
 
-        for idx in range(min(len(areas_list), max_items_on_screen)):
-            current_y_position = start_y_areas + idx * line_height
+        for idx in range(min(len(areas_list_current_frame), max_items_on_screen)):
+            current_y_position = start_y_areas + idx * list_line_height
             display_text = ""
 
-            if idx == max_items_on_screen - 1 and len(areas_list) > max_items_on_screen:
+            if idx == max_items_on_screen - 1 and len(areas_list_current_frame) > max_items_on_screen:
                 display_text = "..."
             else:
-                if idx < len(areas_list):
-                     display_text = f"F{idx+1}: {areas_list[idx]:.0f}px"
+                if idx < len(areas_list_current_frame):
+                     display_text = f"F{idx+1} Area: {areas_list_current_frame[idx]:.0f}px"
                 else:
-                    display_text = f"F{idx+1}: ---" # 万が一areas_listが短い場合
+                    display_text = f"F{idx+1} Area: ---" # Should not happen if loop is correct
 
-            cv2.putText(annotated_frame, display_text, (start_x_areas, current_y_position),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+            # cv2.putText(annotated_frame, display_text, (start_x_areas, current_y_position),
+            #             cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
-        # video_writer.write(annotated_frame)
+        # --- 動画保存関連のコードをコメントアウト ---
+        video_writer.write(annotated_frame)
+        # --- ここまで動画保存関連のコメントアウト ---
+
         cv2.imshow("YOLOv8 Inference", annotated_frame)
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -101,7 +150,9 @@ while cap.isOpened():
         break
 
 cap.release()
-# video_writer.release()
+# --- 動画保存関連のコードをコメントアウト ---
+video_writer.release()
+# --- ここまで動画保存関連のコメントアウト ---
 cv2.destroyAllWindows()
 
-# print(f"Processed video saved successfully to: {output_video_filename}")
+# print(f"Processed video saved successfully to: {output_video_filename}") # コメントアウト
