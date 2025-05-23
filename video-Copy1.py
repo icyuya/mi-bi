@@ -3,15 +3,15 @@ import numpy as np
 from ultralytics import YOLO
 
 # Load the YOLOv8 model
-model_file = "/home/nakahira/nakasone/runs/segment/train3/weights/best.pt"
+model_file = "/home/nakahira/nakasone/mi-bi/runs/segment/train3/weights/best.pt"
 model = YOLO(model_file)
 
 # Open the video file
-video_path = "/home/nakahira/nakasone/video/NAICe5_WIN_20250519_09_39_43_Pro.mp4"
+video_path = "/home/nakahira/nakasone/mi-bi/video/NAICe5_WIN_20250519_09_39_43_Pro.mp4"
 cap = cv2.VideoCapture(video_path)
 
 
-output_video_filename = "/home/nakahira/nakasone/video/output/output.mp4"
+output_video_filename = "/home/nakahira/nakasone/mi-bi/video/output/output.mp4"
 
 if not cap.isOpened():
     print(f"Error: Could not open video {video_path}")
